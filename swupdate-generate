@@ -1,10 +1,7 @@
 #!/bin/bash
 imagesPath=${image_path:-"/tmp/images"}
-keyPath=${key_path:-"/tmp/keys"}
+keysPath=${key_path:-"/tmp/keys"}
 currentPath=$(pwd)
-
-export imagesPath="$image_path"
-export keyPath="$key_path"
 
 images=$(ls $imagesPath | grep .deb)
 FILES="sw-description sw-description.sig $images"
@@ -24,7 +21,7 @@ Options:
   -s|--sign             :sign sw-description with CMS
 "
 
-ARGS=`getopt -o hskKcea:b: -l help,sign,rsa,cms,cpio,encrypt,image_path,key_path -n 'please correct your parameter' -- "$@"`
+ARGS=`getopt -o a:b:hskKce -l image_path,key_path,help,sign,rsa,cms,cpio,encrypt -n 'please correct your parameter' -- "$@"`
 
 if [ $? != 0 ]; then
     echo "$usageString"
@@ -33,9 +30,9 @@ fi
 
 eval set -- "${ARGS}"
 
-while true;
+while [ -n "$1" ]
 do
-  case $1 in
+  case "$1" in
     -h|--help ) echo "$usageString"
       exit 1
       ;;
@@ -54,36 +51,47 @@ do
     -e|--encrypt ) encrypt=true
       shift
       ;;
-    -a|--image_path ) imagepath=true
+    -a|--image_path ) imagespath=true
       # export image_path="$2"
-      #imagesPath="$2"
-      # echo $image_path
+      imagesPath="$2"
+      echo $imagesPath
       #exit 1
       #image_path="$2"
       #export image_path=$imagespath
       shift
+      #break
+      #exit
       ;;
-    -b|--key_path ) keypath=true
+    -b|--key_path ) #keypath=true
+      keysPath=$2
+      echo $keysPath
       shift
+      # break
+      #exit
       ;;
-    -- ) break
+    -- ) 
+      shift
+      break
       ;;
     * ) echo "error";
       exit 1
       ;; 
   esac
+  # shift
 done
 
 # Make sure that $1 references the first "real" option.
-shift $(($OPTIND - 1))
+#shift $(($OPTIND - 1))
 
-if[ $imagepath = true ]; then
-  #export image_path=$2
-  imagesPath="$2"
-fi
+# if [ "$imagepath" = true ]; then
+#   #export image_path=$2
+#   imagesPath=$2
+#   echo $imagesPath
+# fi
 
-# if[ $keypath = true ]; then
-#   export key_path=$2
+# if [ "$keypath" = true ]; then
+#   keysPath=$2
+#   echo $keysPath
 # fi
 
 if [ "$signature" = true ]; then

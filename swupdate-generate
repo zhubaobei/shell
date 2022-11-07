@@ -3,25 +3,25 @@ imagesPath=${image_path:-"/tmp/images"}
 keysPath=${key_path:-"/tmp/keys"}
 currentPath=$(pwd)
 
-images=$(ls $imagesPath | grep .deb)
-FILES="sw-description sw-description.sig $images"
+#images=$(ls $imagesPath | grep .deb)
+#FILES="sw-description sw-description.sig $images"
 
 usageString="
 Usage: swupdate-generate [OPTIONS]
 
 Options:
-  -a|--imagesPath       :set your deb package path
-  -b|--keysPath         :set your key path
-  -c|--cpio             :generate a swu file through sw-description 
-                         sw-description.sig and our deb packages
-  -e|--encrypt          :symmetrically encrypted update images
-  -h|--help             :print this help message and exit
-  -k|--rsa              :generate a private key and a public key with RSA
-  -K|--cms              :generate a private key and a public key with CMS
-  -s|--sign             :sign sw-description with CMS
+  -a, --imagesPath       :set your deb package path
+  -b, --keysPath         :set your key path
+  -c, --cpio             :generate a swu file through sw-description 
+                          sw-description.sig and our deb packages
+  -e, --encrypt          :symmetrically encrypted update images
+  -h, --help             :print this help message and exit
+  -k, --rsa              :generate a private key and a public key with RSA
+  -K, --cms              :generate a private key and a public key with CMS
+  -s, --sign             :sign sw-description with CMS
 "
 
-ARGS=`getopt -o a:b:hskKce -l image_path,key_path,help,sign,rsa,cms,cpio,encrypt -n 'please correct your parameter' -- "$@"`
+ARGS=`getopt -o a:b:hkKesc -l image_path:,key_path:,help,rsa,cms,encrypt,sign,cpio -n 'please correct your parameter' -- "$@"`
 
 if [ $? != 0 ]; then
     echo "$usageString"
@@ -30,7 +30,7 @@ fi
 
 eval set -- "${ARGS}"
 
-while [ -n "$1" ]
+while [ -n "$1" ];
 do
   case "$1" in
     -h|--help ) echo "$usageString"
@@ -39,10 +39,28 @@ do
     -s|--sign ) signature=true
       shift
       ;;
-    -k|--rsa ) rsaKey=true
+    -k|--rsa ) #rsaKey=true
+      echo "generate rsa key"
+      cd $keysPath
+      check_cms_key=$(ls | grep "mycert.*")
+      if [ -n "$check_cms_key" ]; then
+        rm mycert.key.pem mycert.cert.pem
+      fi
+      echo "generate rsa key in $keysPath"
+      openssl genrsa -aes256 -out priv.pem
+      openssl rsa -in priv.pem -out public.pem -outform PEM -pubout
       shift
       ;;
-    -K|--cms ) cmsKey=true
+    -K|--cms ) #cmsKey=true
+      echo "generate cms key"
+      cd $keysPath
+      check_rsa_key=$(ls | grep -E "priv.pem|public.pem")
+      if [ -n "$check_rsa_key" ]; then
+        rm priv.pem public.pem
+      fi
+      echo "generate cms key in $keysPath"
+      openssl req -x509 -newkey rsa:4096 -nodes -keyout mycert.key.pem \
+      -out mycert.cert.pem -subj "/O=SWUpdate /CN=target"
       shift
       ;;
     -c|--cpio ) cpio=true
@@ -51,54 +69,47 @@ do
     -e|--encrypt ) encrypt=true
       shift
       ;;
-    -a|--image_path ) imagespath=true
-      # export image_path="$2"
-      imagesPath="$2"
+    -a|--image_path )
+      imagesPath=$2
       echo $imagesPath
-      #exit 1
-      #image_path="$2"
-      #export image_path=$imagespath
       shift
-      #break
-      #exit
       ;;
-    -b|--key_path ) #keypath=true
+    -b|--key_path )
       keysPath=$2
       echo $keysPath
       shift
-      # break
-      #exit
       ;;
     -- ) 
       shift
       break
       ;;
-    * ) echo "error";
+    * ) echo "Wrong Option";
       exit 1
       ;; 
   esac
-  # shift
+  shift
 done
 
 # Make sure that $1 references the first "real" option.
-#shift $(($OPTIND - 1))
+shift $(($OPTIND - 1))
 
-# if [ "$imagepath" = true ]; then
-#   #export image_path=$2
-#   imagesPath=$2
-#   echo $imagesPath
-# fi
+if [ "$imagespath" = true ]; then
+  
+  imagesPath=$2
+  echo $imagesPath
+fi
 
-# if [ "$keypath" = true ]; then
-#   keysPath=$2
-#   echo $keysPath
-# fi
+if [ "$keyspath" = true ]; then
+  keysPath=$2
+  echo $keysPath
+fi
 
 if [ "$signature" = true ]; then
   cd $currentPath
-  image_num=$(ls -l |grep ".enc" | wc -l)
+  image_num=$(ls -l | grep ".enc" | wc -l)
   if [ $image_num -eq 0 ]; then
     #If there is no encrypted image, copy all file to currentPath
+    images=$(ls $imagesPath | grep .deb)
     cp_imagesPath="$imagesPath/*"
     cp $cp_imagesPath $currentPath
     #Count the number of images  
@@ -153,32 +164,40 @@ if [ "$signature" = true ]; then
     fi
     let b=$b+1
   done
-  check_sign_way=$(ls $keyPath | grep mycert)
+  check_sign_way=$(ls $keysPath | grep mycert)
   if [ "$check_sign_way" = "" ]; then
     #RSA sign
     echo "sign sw-description with rsa"
-    privateKey="$keyPath/priv.pem"
+    privateKey="$keysPath/priv.pem"
     openssl dgst -sha256 -sign $privateKey sw-description > sw-description.sig
   else
     #CMS sign
     echo "sign sw-description with cms"
-    privateKey="$keyPath/mycert.key.pem"
-    publicKey="$keyPath/mycert.cert.pem"
+    privateKey="$keysPath/mycert.key.pem"
+    publicKey="$keysPath/mycert.cert.pem"
     openssl cms -sign -in  sw-description -out sw-description.sig -signer $publicKey \
     -inkey $privateKey -outform DER -nosmimecap -binary
   fi
 fi
 
 if [ "$rsaKey" = true ]; then
-  cd $keyPath
-  rm *
+  cd $keysPath
+  check_cms_key=$(ls | grep "mycert.*")
+  if [ -n "$check_cms_key" ]; then
+    rm mycert.key.pem mycert.cert.pem
+  fi
+  echo "generate rsa key in $keysPath"
   openssl genrsa -aes256 -out priv.pem
   openssl rsa -in priv.pem -out public.pem -outform PEM -pubout
 fi
 
 if [ "$cmsKey" = true ]; then
-  cd $keyPath
-  rm *
+  cd $keysPath
+  check_rsa_key=$(ls | grep -E "priv.pem|public.pem")
+  if [ -n "$check_rsa_key" ]; then
+    rm priv.pem public.pem
+  fi
+  echo "generate cms key in $keysPath"
   openssl req -x509 -newkey rsa:4096 -nodes -keyout mycert.key.pem \
   -out mycert.cert.pem -subj "/O=SWUpdate /CN=target"
 fi
@@ -207,6 +226,8 @@ if [ "$cpio" = true ]; then
 fi
 
 if [ "$encrypt" = true ]; then
+  echo "This is encrypt process"
+  images=$(ls $imagesPath | grep .deb)
   cd $imagesPath 
   a=1
   encryptKey=$(openssl rand -hex 32)

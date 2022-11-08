@@ -1,4 +1,4 @@
-getopt_cmd=$(getopt -o m::ha:b:c:d --long mark::,help,after:,befor:,string:,upper -n $(basename $0) -- "$@")
+getopt_cmd=$(getopt -o m::ha::b::c::d --long mark::,help,after:,befor:,string:,upper -n $(basename $0) -- "$@")
 [ $? -ne 0 ] && exit 1
 eval set -- "$getopt_cmd"
 
@@ -42,16 +42,19 @@ do
             echo -e "$help_str"
             exit ;;
         -a|--after)
-            suffix="$2"
-            echo $suffix
+            # suffix="$2"
+            # echo $suffix
+            echo "123"
             shift ;;
         -b|--befor)
-            prefix="$2"
-            echo $prefix
+            # prefix="$2"
+            # echo $prefix
+            echo "456"
             shift ;;
         -c|--string)
-            base="$2"
-            echo $base
+            # base="$2"
+            # echo $base
+            echo "789"
             shift ;;
         -d|--upper)
             upper=on

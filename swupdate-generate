@@ -3,9 +3,6 @@ imagesPath=${image_path:-"/tmp/images"}
 keysPath=${key_path:-"/tmp/keys"}
 currentPath=$(pwd)
 
-#images=$(ls $imagesPath | grep .deb)
-#FILES="sw-description sw-description.sig $images"
-
 usageString="
 Usage: swupdate-generate [OPTIONS]
 
@@ -21,7 +18,7 @@ Options:
   -s, --sign             :sign sw-description with CMS
 "
 
-ARGS=`getopt -o a:b:hkKesc -l image_path:,key_path:,help,rsa,cms,encrypt,sign,cpio -n 'please correct your parameter' -- "$@"`
+ARGS=`getopt -o a:b:hk::K::e::s::c:: -l image_path:,key_path:,help,rsa::,cms::,encrypt::,sign::,cpio:: -n 'please correct your parameter' -- "$@"`
 
 if [ $? != 0 ]; then
     echo "$usageString"
@@ -39,28 +36,10 @@ do
     -s|--sign ) signature=true
       shift
       ;;
-    -k|--rsa ) #rsaKey=true
-      echo "generate rsa key"
-      cd $keysPath
-      check_cms_key=$(ls | grep "mycert.*")
-      if [ -n "$check_cms_key" ]; then
-        rm mycert.key.pem mycert.cert.pem
-      fi
-      echo "generate rsa key in $keysPath"
-      openssl genrsa -aes256 -out priv.pem
-      openssl rsa -in priv.pem -out public.pem -outform PEM -pubout
+    -k|--rsa ) rsaKey=true
       shift
       ;;
-    -K|--cms ) #cmsKey=true
-      echo "generate cms key"
-      cd $keysPath
-      check_rsa_key=$(ls | grep -E "priv.pem|public.pem")
-      if [ -n "$check_rsa_key" ]; then
-        rm priv.pem public.pem
-      fi
-      echo "generate cms key in $keysPath"
-      openssl req -x509 -newkey rsa:4096 -nodes -keyout mycert.key.pem \
-      -out mycert.cert.pem -subj "/O=SWUpdate /CN=target"
+    -K|--cms ) cmsKey=true
       shift
       ;;
     -c|--cpio ) cpio=true
@@ -71,12 +50,12 @@ do
       ;;
     -a|--image_path )
       imagesPath=$2
-      echo $imagesPath
+      echo "imagesPath=$imagesPath"
       shift
       ;;
     -b|--key_path )
       keysPath=$2
-      echo $keysPath
+      echo "keysPath=$keysPath"
       shift
       ;;
     -- ) 
@@ -93,18 +72,50 @@ done
 # Make sure that $1 references the first "real" option.
 shift $(($OPTIND - 1))
 
-if [ "$imagespath" = true ]; then
-  
-  imagesPath=$2
-  echo $imagesPath
+if [ "$encrypt" = true ]; then
+  echo "********************************encrypt images**********************************"
+  images=$(ls $imagesPath | grep .deb)
+  cd $imagesPath 
+  a=1
+  encryptKey=$(openssl rand -hex 32)
+  for image in $images
+  do
+    encryptIvt=$(openssl rand -hex 16)
+    echo $encryptIvt > Ivt_$a
+    openssl enc -aes-256-cbc -in $image -out $image.enc -K $encryptKey -iv $encryptIvt
+    #Move these encrypted images to current path
+    mv $image.enc $currentPath
+    mv Ivt_$a $currentPath
+    let a=$a+1
+  done
 fi
 
-if [ "$keyspath" = true ]; then
-  keysPath=$2
-  echo $keysPath
+if [ "$rsaKey" = true ]; then
+  echo "*******************************generate rsa key*********************************"
+  cd $keysPath
+  check_cms_key=$(ls | grep "mycert.*")
+  if [ -n "$check_cms_key" ]; then
+    rm mycert.key.pem mycert.cert.pem
+  fi
+  echo "generate rsa key in $keysPath"
+  openssl genrsa -aes256 -out priv.pem
+  openssl rsa -in priv.pem -out public.pem -outform PEM -pubout
+fi
+
+if [ "$cmsKey" = true ]; then
+  echo "*******************************generate cms key*********************************"
+  cd $keysPath
+  check_rsa_key=$(ls | grep -E "priv.pem|public.pem")
+  if [ -n "$check_rsa_key" ]; then
+    rm priv.pem public.pem
+  fi
+  echo "generate cms key in $keysPath"
+  openssl req -x509 -newkey rsa:4096 -nodes -keyout mycert.key.pem \
+  -out mycert.cert.pem -subj "/O=SWUpdate /CN=target"
 fi
 
 if [ "$signature" = true ]; then
+  echo "******************************sign sw-description*******************************"
   cd $currentPath
   image_num=$(ls -l | grep ".enc" | wc -l)
   if [ $image_num -eq 0 ]; then
@@ -180,29 +191,8 @@ if [ "$signature" = true ]; then
   fi
 fi
 
-if [ "$rsaKey" = true ]; then
-  cd $keysPath
-  check_cms_key=$(ls | grep "mycert.*")
-  if [ -n "$check_cms_key" ]; then
-    rm mycert.key.pem mycert.cert.pem
-  fi
-  echo "generate rsa key in $keysPath"
-  openssl genrsa -aes256 -out priv.pem
-  openssl rsa -in priv.pem -out public.pem -outform PEM -pubout
-fi
-
-if [ "$cmsKey" = true ]; then
-  cd $keysPath
-  check_rsa_key=$(ls | grep -E "priv.pem|public.pem")
-  if [ -n "$check_rsa_key" ]; then
-    rm priv.pem public.pem
-  fi
-  echo "generate cms key in $keysPath"
-  openssl req -x509 -newkey rsa:4096 -nodes -keyout mycert.key.pem \
-  -out mycert.cert.pem -subj "/O=SWUpdate /CN=target"
-fi
-
 if [ "$cpio" = true ]; then
+  echo "***********************************cpio swu*************************************"
   #generate a swu file
   cd $currentPath
   image_num=$(ls -l |grep ".enc" | wc -l)
@@ -222,23 +212,5 @@ if [ "$cpio" = true ]; then
   for filename in $FILES
   do
     rm $filename
-  done
-fi
-
-if [ "$encrypt" = true ]; then
-  echo "This is encrypt process"
-  images=$(ls $imagesPath | grep .deb)
-  cd $imagesPath 
-  a=1
-  encryptKey=$(openssl rand -hex 32)
-  for image in $images
-  do
-    encryptIvt=$(openssl rand -hex 16)
-    echo $encryptIvt > Ivt_$a
-    openssl enc -aes-256-cbc -in $image -out $image.enc -K $encryptKey -iv $encryptIvt
-    #Move these encrypted images to current path
-    mv $image.enc $currentPath
-    mv Ivt_$a $currentPath
-    let a=$a+1
   done
 fi

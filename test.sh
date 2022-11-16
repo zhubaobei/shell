@@ -1,4 +1,4 @@
-getopt_cmd=$(getopt -o m::ha::b::c::d --long mark::,help,after:,befor:,string:,upper -n $(basename $0) -- "$@")
+getopt_cmd=$(getopt -o mha::b::c::d --long mark::,help,after:,befor:,string:,upper -n $(basename $0) -- "$@")
 [ $? -ne 0 ] && exit 1
 eval set -- "$getopt_cmd"
 
@@ -29,13 +29,27 @@ while [ -n "$1" ]
 do
     case "$1" in
         -m|--mark)
-            case "$2" in
-                "")
-                    mark="_"
-                    shift ;;
-                *)
-                    mark="$2"
-                    shift ;;
+            # case "$2" in
+                # "")
+                    # mark="_"
+                    # echo $mark
+                    # shift ;;
+                # *)
+                    # mark="$2"
+                    # echo $mark
+                    # shift ;;
+            # esac
+            read -p "please input your swu file name : " input
+            case "$input" in
+              "")
+                  mark="123"
+                  echo $mark
+                  shift;;
+              *)
+                  input=$2
+                  mark="$input"
+                  echo $mark
+                  shift;;
             esac
             ;;
         -h|--help)

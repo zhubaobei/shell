@@ -2,6 +2,7 @@
 imagesPath=${image_path:-"/tmp/images"}
 keysPath=${key_path:-"/tmp/keys"}
 currentPath=$(pwd)
+encryptKeyPath=${enc_key_file:-"$currentPath/hex32"}
 
 usageString="
 Usage: swupdate-generate [OPTIONS]
@@ -9,16 +10,16 @@ Usage: swupdate-generate [OPTIONS]
 Options:
   -a, --imagesPath       :set your deb package path
   -b, --keysPath         :set your key path
-  -c, --cpio             :generate a swu file through sw-description 
-                          sw-description.sig and our deb packages
-  -e, --encrypt          :symmetrically encrypted update images
+  -c, --cpio             :generate a swu file including sw-description 
+                          sw-description.sig and deb packages
+  -e, --encrypt          :symmetrically encrypt update images
   -h, --help             :print this help message and exit
   -k, --rsa              :generate a private key and a public key with RSA
   -K, --cms              :generate a private key and a public key with CMS
   -s, --sign             :sign sw-description with CMS
 "
 
-ARGS=`getopt -o a:b:hk::K::e::s::c:: -l image_path:,key_path:,help,rsa::,cms::,encrypt::,sign::,cpio:: -n 'please correct your parameter' -- "$@"`
+ARGS=`getopt -o a:b:hk::K:es::c:: -l image_path:,key_path:,help,rsa::,cms::,encrypt::,sign::,cpio:: -n 'please correct your parameter' -- "$@"`
 
 if [ $? != 0 ]; then
     echo "$usageString"
@@ -40,12 +41,45 @@ do
       shift
       ;;
     -K|--cms ) cmsKey=true
+      cms_1=$2
+      echo "i am $cms_1"
       shift
       ;;
     -c|--cpio ) cpio=true
       shift
       ;;
-    -e|--encrypt ) encrypt=true
+    -e|--encrypt ) #encrypt=true
+      echo "********************************encrypt images**********************************"
+      cd $currentPath
+      read -p "please input your encrypt keyfile path (default path:$encryptKeyPath) : " input
+      case "$input" in
+        "")
+            echo "上面"
+            encryptKey=$(cat $encryptKeyPath)
+            echo $encryptKey
+            shift;;
+        *)
+            echo "下面"
+            encryptKeyPath=$input
+            encryptKey=$(cat $encryptKeyPath)
+            echo $encryptKey
+            shift;;
+      esac
+
+      images=$(ls $imagesPath | grep .deb)
+      cd $imagesPath 
+      a=1
+      #encryptKey=$(openssl rand -hex 32)
+      for image in $images
+      do
+        encryptIvt=$(openssl rand -hex 16)
+        echo $encryptIvt > Ivt_$a
+        openssl enc -aes-256-cbc -in $image -out $image.enc -K $encryptKey -iv $encryptIvt
+        # Move these encrypted images to current path
+        mv $image.enc $currentPath
+        mv Ivt_$a $currentPath
+        let a=$a+1
+      done
       shift
       ;;
     -a|--image_path )
@@ -72,31 +106,14 @@ done
 # Make sure that $1 references the first "real" option.
 shift $(($OPTIND - 1))
 
-if [ "$encrypt" = true ]; then
-  echo "********************************encrypt images**********************************"
-  images=$(ls $imagesPath | grep .deb)
-  cd $imagesPath 
-  a=1
-  encryptKey=$(openssl rand -hex 32)
-  for image in $images
-  do
-    encryptIvt=$(openssl rand -hex 16)
-    echo $encryptIvt > Ivt_$a
-    openssl enc -aes-256-cbc -in $image -out $image.enc -K $encryptKey -iv $encryptIvt
-    #Move these encrypted images to current path
-    mv $image.enc $currentPath
-    mv Ivt_$a $currentPath
-    let a=$a+1
-  done
+if [ "$rsaKey" = true ] && [ "$cmsKey" = true ]; then
+  echo "Please don't use both parameters k and K "
+  exit 1
 fi
 
 if [ "$rsaKey" = true ]; then
   echo "*******************************generate rsa key*********************************"
   cd $keysPath
-  check_cms_key=$(ls | grep "mycert.*")
-  if [ -n "$check_cms_key" ]; then
-    rm mycert.key.pem mycert.cert.pem
-  fi
   echo "generate rsa key in $keysPath"
   openssl genrsa -aes256 -out priv.pem
   openssl rsa -in priv.pem -out public.pem -outform PEM -pubout
@@ -105,13 +122,40 @@ fi
 if [ "$cmsKey" = true ]; then
   echo "*******************************generate cms key*********************************"
   cd $keysPath
-  check_rsa_key=$(ls | grep -E "priv.pem|public.pem")
-  if [ -n "$check_rsa_key" ]; then
-    rm priv.pem public.pem
-  fi
   echo "generate cms key in $keysPath"
   openssl req -x509 -newkey rsa:4096 -nodes -keyout mycert.key.pem \
   -out mycert.cert.pem -subj "/O=SWUpdate /CN=target"
+fi
+
+if [ "$encrypt" = true ]; then
+  echo "********************************encrypt images**********************************"
+  cd $currentPath
+  # tempVar=$2
+  # echo $tempVar
+  if [ "$tempVar" = "" ]; then
+    encryptKey=$(cat hex32)
+    echo $encryptKey
+  else
+    #cp $2 $currentPath
+    #echo $2
+    encryptKey=$(cat $tempVar)
+    echo $encryptKey 
+  fi
+
+  images=$(ls $imagesPath | grep .deb)
+  cd $imagesPath 
+  a=1
+  #encryptKey=$(openssl rand -hex 32)
+  for image in $images
+  do
+    encryptIvt=$(openssl rand -hex 16)
+    echo $encryptIvt > Ivt_$a
+    openssl enc -aes-256-cbc -in $image -out $image.enc -K $encryptKey -iv $encryptIvt
+    # Move these encrypted images to current path
+    mv $image.enc $currentPath
+    mv Ivt_$a $currentPath
+    let a=$a+1
+  done
 fi
 
 if [ "$signature" = true ]; then
@@ -119,17 +163,17 @@ if [ "$signature" = true ]; then
   cd $currentPath
   image_num=$(ls -l | grep ".enc" | wc -l)
   if [ $image_num -eq 0 ]; then
-    #If there is no encrypted image, copy all file to currentPath
+    # If there is no encrypted image, copy all file to currentPath
     images=$(ls $imagesPath | grep .deb)
     cp_imagesPath="$imagesPath/*"
     cp $cp_imagesPath $currentPath
-    #Count the number of images  
+    # Count the number of images  
     cd $imagesPath
     image_num=$(ls -l |grep ".deb" | wc -l)
     cd $currentPath
     for ((c=1;c<=$image_num;c++))
     do
-      #Rewrite sw-description
+      # Rewrite sw-description
       if [ $c -eq 1 ] ; then
         sed '/images: (/a\\t\t{\n\t\t\t'"imagename_$c"'\n\t\t\t'"imagesha256_$c"'\n\t\t\t'"type_$c"'\n\t\t}\n' sw-description.template > sw-description
       else
@@ -137,14 +181,14 @@ if [ "$signature" = true ]; then
       fi
     done
   else
-    #If there are encrypted images
+    # If there are encrypted images
     rm -f encryptIvt
     images=$(ls $currentPath | grep .enc)
-    #Copied these encrypted images to current path
+    # Copied these encrypted images to current path
     image_num=$(ls -l |grep ".enc" | wc -l)
     for ((c=1;c<=$image_num;c++))
     do
-      #Rewrite sw-description
+      # Rewrite sw-description
       encryptIvt=$(cat Ivt_$c)
       if [ $c -eq 1 ] ; then
         sed '/images: (/a\\t\t{\n\t\t\t'"imagename_$c"'\n\t\t\t'"imagesha256_$c"'\n\t\t\t'"type_$c"'\n\t\t\t'"encrypted = true;"'\n\t\t\t'"ivt = \"$encryptIvt\""\;'\n\t\t}\n' sw-description.template > sw-description
@@ -175,25 +219,28 @@ if [ "$signature" = true ]; then
     fi
     let b=$b+1
   done
-  check_sign_way=$(ls $keysPath | grep mycert)
-  if [ "$check_sign_way" = "" ]; then
-    #RSA sign
+
+  # RSA sign
+  if [ "$rsaKey" = true ]; then
     echo "sign sw-description with rsa"
     privateKey="$keysPath/priv.pem"
     openssl dgst -sha256 -sign $privateKey sw-description > sw-description.sig
-  else
-    #CMS sign
+  fi
+
+  # CMS sign
+  if [ "$cmsKey" = true ]; then
     echo "sign sw-description with cms"
     privateKey="$keysPath/mycert.key.pem"
     publicKey="$keysPath/mycert.cert.pem"
     openssl cms -sign -in  sw-description -out sw-description.sig -signer $publicKey \
     -inkey $privateKey -outform DER -nosmimecap -binary
   fi
+
 fi
 
 if [ "$cpio" = true ]; then
   echo "***********************************cpio swu*************************************"
-  #generate a swu file
+  # Generate a swu file
   cd $currentPath
   image_num=$(ls -l |grep ".enc" | wc -l)
   if [ $image_num -eq 0 ]; then

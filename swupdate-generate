@@ -1,4 +1,5 @@
 #!/bin/bash
+# you can add set -e
 imagesPath=${image_path:-"/tmp/images"}
 keysPath=${key_path:-"/tmp/keys"}
 currentPath=$(pwd)
